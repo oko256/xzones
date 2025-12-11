@@ -12,6 +12,7 @@ import argparse
 import uuid
 
 CONFIG_FILE = str(Path.home() / ".xzones")
+VERBOSE = False
 
 def find_window(display: Display, window_id=None):
     if not window_id:
@@ -74,7 +75,7 @@ class Daemon:
                         'ext_requests': (0, 0, 0, 0),
                         'ext_replies': (0, 0, 0, 0),
                         'delivered_events': (0, 0),
-                        'device_events': (X.ButtonPress, X.MotionNotify),
+                        'device_events': (X.ButtonPress, X.ButtonRelease),
                         'errors': (0, 0),
                         'client_started': False,
                         'client_died': False,
@@ -100,9 +101,6 @@ class Daemon:
                 if self.snap_activated:
                     self.snap_active_window(event.root_x, event.root_y)
                 self.snap_activated = False
-            elif event.type == X.MotionNotify:
-                #print(f"Motion: {event.root_x} , {event.root_y}")
-                pass
 
     def snap_active_window(self, x, y):
         try:
@@ -247,7 +245,8 @@ class Configurator:
                 elif keysym in (XK.XK_s, XK.XK_S):
                     self.update_config()
 
-            print(".", end="", flush=True)
+            if VERBOSE:
+                print(".", end="", flush=True)
 
     def update_config(self):
         preset_name = find_preset_name_with_current_screens(self.display, self.config)
@@ -290,7 +289,11 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(prog='xzones', description="Running without arguments starts the configuration mode.")
     parser.add_argument('-d', '--daemon', help="Run as the daemon that allows the use of zones", action='store_true')
+    parser.add_argument('-v', '--verbose', help="Enable verbose debug output", action='store_true')
     args = parser.parse_args()
+    if args.verbose:
+        VERBOSE = True
+        print("Verbose debug output enabled.")
     if args.daemon:
         d = Daemon(config)
         d.run()
