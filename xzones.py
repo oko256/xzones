@@ -50,7 +50,7 @@ def find_zone_rects(display: Display, config):
         preset = config[preset_name]
         zone_rects = []
         for zone_name, z in preset['zones'].items():
-            if ('x0' in z) and ('y0' in z) and ('x1' in z) and ('y1' in z):
+            if ('x' in z) and ('y' in z) and ('width' in z) and ('height' in z):
                 zone_rects.append(z)
         return zone_rects
     return []
@@ -108,10 +108,10 @@ class Daemon:
             window = find_window(display)
             if window is None:
                 return
-            window_geometry = window.get_geometry()
+            NET_FRAME_EXTENTS = display.intern_atom('_NET_FRAME_EXTENTS')
+            prop = window.get_full_property(NET_FRAME_EXTENTS, X.AnyPropertyType)
+            left, right, top, bottom = prop.value
             parent_geometry = window.query_tree().parent.get_geometry()
-            width_diff = parent_geometry.width - window_geometry.width
-            height_diff = parent_geometry.height - window_geometry.height
 
             zone_rects = find_zone_rects(display, self.config)
 
@@ -121,20 +121,22 @@ class Daemon:
             zone_h = None
             zone_found = False
             for z in zone_rects:
-                if (x > z['x0']) and (x < z['x1']) and (y > z['y0']) and (y < z['y1']):
+                if (x > z['x']) and (x < (z['x'] + z['width'])) and (y > z['y']) and (y < (z['y'] + z['height'])):
                     # Inside this zone
-                    zone_x = z['x0']
-                    zone_y = z['y0']
-                    zone_w = z['x1'] - zone_x
-                    zone_h = z['y1'] - zone_y
+                    print(f"Inside zone: {z}")
+                    zone_x = z['x']
+                    zone_y = z['y'] - top - bottom
+                    zone_w = z['width']
+                    zone_h = z['height']
                     zone_found = True
                     break
             if zone_found:
+                print(f"Configure window: x={zone_x}, y={zone_y}, w={zone_w}, h={zone_h}")
                 window.configure(
                         x=zone_x,
                         y=zone_y,
-                        width=zone_w - width_diff,
-                        height=zone_h - height_diff,
+                        width=zone_w,
+                        height=zone_h,
                         stack_mode=X.Above,
                         )
                 display.sync()
@@ -152,7 +154,7 @@ class Configurator:
             self.screen = self.display.screen()
 
             self.window = self.screen.root.create_window(
-                    x, y, width, height, 2,
+                    10, 10, 300, 300, 2,
                     self.screen.root_depth,
                     X.InputOutput,
                     X.CopyFromParent,
@@ -174,6 +176,13 @@ class Configurator:
             self.window.set_wm_normal_hints(flags = (Xutil.PPosition | Xutil.PSize | Xutil.PMinSize), min_width = 20, min_height = 20)
 
             self.window.map()
+            self.window.configure(
+                    x=x,
+                    y=y,
+                    width=width,
+                    height=height,
+                    stack_mode=X.Above,
+                    )
 
     def __init__(self, config):
         self.config = config
@@ -212,9 +221,7 @@ class Configurator:
             self.zone_windows.append(self.ZoneWindow(self.display, self.palette[len(self.zone_windows)], 0, 0, 300, 300))
         else:
             for z in zone_rects:
-                w = z['x1'] - z['x0']
-                h = z['y1'] - z['y0']
-                self.zone_windows.append(self.ZoneWindow(self.display, self.palette[len(self.zone_windows)], z['x0'], z['y0'], w, h))
+                self.zone_windows.append(self.ZoneWindow(self.display, self.palette[len(self.zone_windows)], z['x'], z['y'], z['width'], z['height']))
 
     def run(self):
         while True:
@@ -263,15 +270,19 @@ class Configurator:
                 preset['screens']['height'].append(sc['height'])
 
         preset['zones'] = {}
+        NET_FRAME_EXTENTS = self.display.intern_atom('_NET_FRAME_EXTENTS')
         for w in self.zone_windows:
             id = str(uuid.uuid4())
-            window_geometry = w.window.get_geometry()
+
+            prop = w.window.get_full_property(NET_FRAME_EXTENTS, X.AnyPropertyType)
+            left, right, top, bottom = prop.value
             parent_geometry = w.window.query_tree().parent.get_geometry()
+
             preset['zones'][id] = {
-                    'x0': parent_geometry.x,
-                    'y0': parent_geometry.y,
-                    'x1': parent_geometry.x + parent_geometry.width,
-                    'y1': parent_geometry.y + parent_geometry.height,
+                    'x': parent_geometry.x,
+                    'y': parent_geometry.y,
+                    'width': parent_geometry.width - left - right,
+                    'height': parent_geometry.height - top - bottom,
                     }
 
         if not preset_name:
